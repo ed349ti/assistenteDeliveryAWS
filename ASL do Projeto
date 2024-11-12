@@ -1,0 +1,118 @@
+{
+  "Comment": "Projeto de Assistente de Delivery utilizando AWS Step Functions, Amazon Lex, Lambda, DynamoDB e Amazon Bedrock",
+  "StartAt": "IniciarPedido",
+  "States": {
+    "IniciarPedido": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:lex:postText",
+      "Parameters": {
+        "BotName": "DeliveryBot",
+        "InputText": "FazerPedido"
+      },
+      "Next": "ProcessarSugestoes"
+    },
+    "ProcessarSugestoes": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:lambda:invoke",
+      "Parameters": {
+        "FunctionName": "ProcessarSugestoesLambda",
+        "Payload": {
+          "Pedido": "$.Pedido",
+          "HistoricoUsuario": "$.HistoricoUsuario"
+        }
+      },
+      "Next": "GerarSugestoes"
+    },
+    "GerarSugestoes": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:lambda:invoke",
+      "Parameters": {
+        "FunctionName": "GerarSugestoesBedrockLambda",
+        "Payload": {
+          "Pedido": "$.Pedido",
+          "Preferencias": "$.Preferencias"
+        }
+      },
+      "Next": "ArmazenarDadosPedido"
+    },
+    "ArmazenarDadosPedido": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:putItem",
+      "Parameters": {
+        "TableName": "Pedidos",
+        "Item": {
+          "PedidoId": {
+            "S": "$.Pedido.PedidoId"
+          },
+          "UsuarioId": {
+            "S": "$.Pedido.UsuarioId"
+          },
+          "Itens": {
+            "S": "$.Pedido.Itens"
+          },
+          "Sugestoes": {
+            "S": "$.Sugestoes"
+          }
+        }
+      },
+      "Next": "ConfirmarPedido"
+    },
+    "ConfirmarPedido": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:api-gateway:invoke",
+      "Parameters": {
+        "ApiEndpoint": "https://api.delivery.com/confirmarPedido",
+        "Method": "POST",
+        "Body": {
+          "PedidoId": "$.Pedido.PedidoId",
+          "Status": "Confirmado"
+        }
+      },
+      "End": true
+    }
+  }
+}
+
+/* 
+Explicação do Fluxo:
+IniciarPedido:
+
+O fluxo começa com o estado IniciarPedido, onde o assistente virtual (via Amazon Lex) recebe a entrada do usuário (o pedido inicial).  
+A função do Amazon Lex é capturar o texto enviado pelo usuário e interpretá-lo como um pedido.
+ProcessarSugestoes:
+
+O próximo passo chama uma função AWS Lambda (identificada como ProcessarSugestoesLambda), que é responsável por processar o histórico do usuário e as preferências de pedido. 
+A Lambda pode consultar o banco de dados DynamoDB ou outros sistemas para recuperar dados relevantes para o processamento da sugestão.
+GerarSugestoes:
+
+Após o processamento inicial, o fluxo avança para o estado GerarSugestoes, onde outra função Lambda é acionada.
+Essa função chama o modelo de IA hospedado no Amazon Bedrock para gerar sugestões personalizadas baseadas no pedido e no histórico do usuário.
+O retorno é uma lista de sugestões, como complementos ou produtos adicionais.
+ArmazenarDadosPedido:
+
+O estado ArmazenarDadosPedido armazena as informações do pedido no banco de dados Amazon DynamoDB. 
+A tabela Pedidos armazena dados como o PedidoId, UsuarioId, Itens do Pedido e Sugestões fornecidas pelo assistente.
+ConfirmarPedido:
+
+Finalmente, o fluxo chega ao estado ConfirmarPedido, onde uma chamada de API é feita para confirmar o pedido via Amazon API Gateway.
+O sistema confirma o pedido com um status de "Confirmado" e encerra o fluxo.
+
+Definições de Funções:
+
+Amazon Lex: Utiliza o serviço AWS SDK para interagir com o Amazon Lex e obter as informações de texto (pedido).
+
+AWS Lambda: Usa funções Lambda para processar sugestões de pedidos e interagir com o modelo do Amazon Bedrock.
+
+Amazon DynamoDB: Armazena os dados do pedido em uma tabela Pedidos.
+
+Amazon API Gateway: Faz uma chamada RESTful para confirmar o pedido através da API.
+
+Considerações Importantes:
+
+Cada estado do fluxo está conectado de forma sequencial. 
+
+O fluxo de trabalho é orquestrado pela AWS Step Functions, onde as transições entre os estados dependem da conclusão das tarefas anteriores.
+
+Esse fluxo assume que você já tem as funções Lambda configuradas (como ProcessarSugestoesLambda e GerarSugestoesBedrockLambda), 
+assim como os recursos como Amazon Lex e DynamoDB configurados previamente. 
+*/
